@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
 Mirror all GitHub repositories for a user, maintaining metadata.
@@ -16,7 +16,7 @@ import sys
 import argparse
 
 try:
-    from urllib.request import urlopen
+    from urllib.request import Request, urlopen
 except ImportError:  # Python 2 fallback
     from urllib import urlopen
 
@@ -30,9 +30,13 @@ def repos(user):
     """
 
     for page in itertools.count(start=1):
-        res_handle = urlopen(
-            "https://api.github.com/users/%s/repos?page=%d" % (user, page)
-        )
+        req = Request("https://api.github.com/users/%s/repos?page=%d" % (user, page))
+        ghauth = os.environ["GHAUTH"]
+        req.add_header('Authorization',f"Bearer {ghauth}")
+        """
+        req.add_header('X-GitHub-Api-Version', '2022-11-28')
+        """
+        res_handle = urlopen(req)
         res_encoding = "utf8"
         res_json = json.loads(res_handle.read().decode(res_encoding))
 
@@ -62,7 +66,7 @@ def update(repo):
     :param repo: information about this repo
     """
 
-    repo_dir = os.path.basename(repo["clone_url"])
+    repo_dir = os.path.basename(repo["ssh_url"])
     subprocess.check_call(["git", "--git-dir", repo_dir, "remote", "update"])
     description(os.path.join(repo_dir, "description"), repo["description"])
     export(os.path.join(repo_dir, "git-daemon-export-ok"))
@@ -75,9 +79,9 @@ def mirror(repo):
     :param repo: information about the repo to mirror
     """
 
-    subprocess.check_call(["git", "clone", "--mirror", repo["clone_url"]])
+    subprocess.check_call(["git", "clone", "--mirror", repo["ssh_url"]])
 
-    repo_dir = os.path.basename(repo["clone_url"])
+    repo_dir = os.path.basename(repo["ssh_url"])
     description_file = os.path.join(repo_dir, "description")
     export_file = os.path.join(repo_dir, "git-daemon-export-ok")
 
@@ -118,7 +122,7 @@ def remotely_deleted_repos(remote_repos):
     files = os.listdir(".")
 
     local_repos = [x for x in files if x.endswith(".git") and x != ".git"]
-    remote_repo_urls = [remote_repo["clone_url"] for remote_repo in remote_repos]
+    remote_repo_urls = [remote_repo["ssh_url"] for remote_repo in remote_repos]
     remote_repos = [url.split("/")[-1] for url in remote_repo_urls]
     return [repo for repo in local_repos if repo not in remote_repos]
 
@@ -147,7 +151,7 @@ def update_or_mirror_repos(args, delete=False):
     user_repos = list(repos(args.username))
 
     for repo in user_repos:
-        url = repo["clone_url"]
+        url = repo["ssh_url"]
 
         if matches_name(url, args.include):
             print("Bypassing skip checks for {} as it matches an include".format(url))
